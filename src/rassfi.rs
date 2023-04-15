@@ -1,88 +1,57 @@
 use std::{
     env,
-    fs::{self},
+    fs,
     io,
-    path::PathBuf,
-    process::{exit, Child, Command, Stdio},
+    path::{PathBuf, Path},
 };
 
-use srsa::Keys;
-
-/// - `Keys`: Enable usage of RSA key pairs through this struct.
-/// - `accounts`: The path to each encrypted file.
+/// # Parameters
+/// - `keystore`: The path to where the private and public keys are stored.
 /// - `vault`: The directory where the encrypte files are stored.
-pub struct Rassfi<'names> {
-    key: Keys<'names>,
+pub struct Rassfi {
+    keystore: PathBuf,
     accounts: Vec<PathBuf>,
-    vault: PathBuf,
 }
 
-impl<'names> Rassfi<'names> {
+impl Rassfi {
     /// Creates an instance of `Rassfi`.
-    pub fn new(priv_key: &'names str, pub_key: &'names str, password: &str) -> io::Result<Self> {
-        let key = Keys::retreive_keys(&priv_key, &password, &pub_key);
+    pub fn new() -> io::Result<Self> {
+        // A new variable for specifying the location of public and private keys.
+        let keystore = Self::load_keystore();
+        let accounts = Self::load_accounts()?;
 
+        Ok(Self {
+            keystore,
+            accounts,
+        })
+    }
+
+    /// Loads in all encrypted files from the location specified in `RASSFI_VAULT`.
+    fn load_accounts() -> io::Result<Vec<PathBuf>> {
         let vault = match env::var("RASSFI_VAULT") {
             Ok(vault) => vault,
-            Err(e) => {
-                eprintln!("{}", e);
-                exit(1);
-            }
+            Err(e) => panic!("{}", e),
         };
 
         let directory_contents = fs::read_dir(&vault)?;
-        // entry.ok() will return None if entry is Err. filter_map will 
+        // entry.ok() will return None if entry is Err. filter_map will
         // only save values of Some(_) and ignore Err. So only valid DirEntry is saved.
         let accounts: Vec<PathBuf> = directory_contents
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
             .collect();
 
-        let vault = PathBuf::from(vault);
-
-        Ok(Self {
-            key,
-            accounts,
-            vault,
-        })
-    }
-}
-
-// Public methods
-impl Rassfi<'_> {
-    /// Builds the rofi menu
-    pub fn show_services(&self) -> String {
-        let options = self.feed_options();
-
-        let input = Command::new("rofi")
-            .arg("-dmenu")
-            .stdin(Stdio::from(options.stdout.unwrap()))
-            .output()
-            .unwrap();
-
-        // Can get output like this
-        String::from_utf8(input.stdout).unwrap()
+        Ok(accounts)
     }
 
-}
+    /// The location where all your keys are stored public and private specified in
+    /// `RASSFI_KEYSTORE`.
+    fn load_keystore() -> PathBuf {
+        let key_store = match env::var("RASSFI_KEYSTORE") {
+            Ok(keys) => keys,
+            Err(e) => panic!("{}", e),
+        };
 
-// Private methods
-impl Rassfi<'_> {
-    /// Returns a spawned `Child`.
-    fn feed_options(&self) -> Child {
-        let mut options = String::new();
-        for account in &self.accounts {
-            // This will unwrap if file has no name. Will need to disallow empty file names.
-            let entry = account.file_stem().unwrap();
-            // If the above passes, this will too. Can remain unwrap.
-            let entry = entry.to_str().unwrap();
-            options.push_str(format!("{}\n", entry).as_str());
-        }
-
-        Command::new("echo")
-            .args(["-e", &options])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap()
+        Path::new(&key_store).to_owned()
     }
 }

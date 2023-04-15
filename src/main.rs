@@ -1,12 +1,6 @@
-use std::io;
-
+mod rassfi;
 use rassfi::Rassfi;
 
-mod rassfi;
-
-fn main() -> io::Result<()> {
-    let rassfi = Rassfi::new("sec", "pub", "123")?;
-    rassfi.show_services();
-
-    Ok(())
+fn main()  {
+    let rassfi = Rassfi::new().unwrap();
 }
