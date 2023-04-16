@@ -1,8 +1,9 @@
 use std::{
     env,
-    fs,
-    io,
-    path::{PathBuf, Path},
+    ffi::OsStr,
+    fs, io,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
 };
 
 /// # Parameters
@@ -20,10 +21,7 @@ impl Rassfi {
         let keystore = Self::load_keystore();
         let accounts = Self::load_accounts()?;
 
-        Ok(Self {
-            keystore,
-            accounts,
-        })
+        Ok(Self { keystore, accounts })
     }
 
     /// Loads in all encrypted files from the location specified in `RASSFI_VAULT`.
@@ -53,5 +51,66 @@ impl Rassfi {
         };
 
         Path::new(&key_store).to_owned()
+    }
+}
+
+impl Rassfi {
+    pub fn display_accounts(&self) {
+        let mut options = vec![];
+        for account in &self.accounts {
+            let account = account.file_name().unwrap();
+            options.push(account.to_str().unwrap());
+        }
+
+        let options = options.join("\n");
+        let echo = Command::new("echo")
+            .args(["-e", &options])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let rofi = Command::new("rofi")
+            .arg("-dmenu")
+            .stdin(Stdio::from(echo.stdout.unwrap()))
+            .output()
+            .unwrap();
+
+        let input = String::from_utf8(rofi.stdout).unwrap();
+        println!("Input: {}", input);
+        self.key_selection().unwrap();
+    }
+
+    fn key_selection(&self) -> io::Result<()> {
+        // Returns Result<T>
+        let entries = fs::read_dir(&self.keystore)?
+            // `res` is a Result<DirEntry, Error>
+            .map(|res| res.map(|e| e.path()))
+            // res.map() will return a Vec<PathBuf>.
+            // Which is why Vec<_> is in Result<U, V>
+            // The ? will panic if there is any Error.
+            .collect::<Result<Vec<_>, io::Error>>()?;
+
+        let entires: Vec<&str> = entries.iter().map(|entry| {
+            let name = entry.file_name().unwrap().to_str().unwrap();
+            name
+        }).collect();
+
+        let options = entires.join("\n");
+        let echo = Command::new("echo")
+            .args(["-e", &options])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let rofi = Command::new("rofi")
+            .arg("-dmenu")
+            .stdin(Stdio::from(echo.stdout.unwrap()))
+            .output()
+            .unwrap();
+
+        let input = String::from_utf8(rofi.stdout).unwrap();
+        println!("Key: {}", input);
+
+        Ok(())
     }
 }
