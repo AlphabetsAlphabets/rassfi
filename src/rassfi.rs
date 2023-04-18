@@ -1,9 +1,9 @@
 use std::{
     env,
-    ffi::OsStr,
+    fmt::Display,
     fs, io,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{exit, Command, Stdio},
 };
 
 /// # Parameters
@@ -12,6 +12,17 @@ use std::{
 pub struct Rassfi {
     keystore: PathBuf,
     accounts: Vec<PathBuf>,
+}
+
+/// Returns takes a `Result` of any type then returns the `ok`.
+fn handle_error<T, U: Display>(result: Result<T, U>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!("{}", e);
+            exit(1)
+        }
+    }
 }
 
 impl Rassfi {
@@ -26,10 +37,7 @@ impl Rassfi {
 
     /// Loads in all encrypted files from the location specified in `RASSFI_VAULT`.
     fn load_accounts() -> io::Result<Vec<PathBuf>> {
-        let vault = match env::var("RASSFI_VAULT") {
-            Ok(vault) => vault,
-            Err(e) => panic!("{}", e),
-        };
+        let vault = handle_error(env::var("RASSFI_VAULT"));
 
         let directory_contents = fs::read_dir(&vault)?;
         // entry.ok() will return None if entry is Err. filter_map will
@@ -45,23 +53,15 @@ impl Rassfi {
     /// The location where all your keys are stored public and private specified in
     /// `RASSFI_KEYSTORE`.
     fn load_keystore() -> PathBuf {
-        let key_store = match env::var("RASSFI_KEYSTORE") {
-            Ok(keys) => keys,
-            Err(e) => panic!("{}", e),
-        };
-
-        Path::new(&key_store).to_owned()
+        let keystore = handle_error(env::var("RASSFI_KEYSTORE"));
+        Path::new(&keystore).to_owned()
     }
 }
 
+/// Utility functions for rofi
 impl Rassfi {
-    pub fn display_accounts(&self) {
-        let mut options = vec![];
-        for account in &self.accounts {
-            let account = account.file_name().unwrap();
-            options.push(account.to_str().unwrap());
-        }
-
+    /// Populates the rofi dropdown with values in `options`.
+    fn form_builder(&self, options: &[&str]) -> String {
         let options = options.join("\n");
         let echo = Command::new("echo")
             .args(["-e", &options])
@@ -72,14 +72,37 @@ impl Rassfi {
         let rofi = Command::new("rofi")
             .arg("-dmenu")
             .stdin(Stdio::from(echo.stdout.unwrap()))
-            .output()
-            .unwrap();
+            .output();
+
+        let rofi = match rofi {
+            Ok(output) => output,
+            Err(_) => {
+                eprintln!("Rofi is not installed.");
+                exit(1);
+            }
+        };
 
         let input = String::from_utf8(rofi.stdout).unwrap();
+        input
+    }
+}
+
+// Functions related to decrypting files.
+impl Rassfi {
+    /// Display all the encrypted files specified in `RASSFI_VAULT`.
+    pub fn display_accounts(&self) {
+        let mut options = vec![];
+        for account in &self.accounts {
+            let account = account.file_name().unwrap();
+            options.push(account.to_str().unwrap());
+        }
+
+        let input = self.form_builder(&options);
         println!("Input: {}", input);
         self.key_selection().unwrap();
     }
 
+    /// Display all the keys in `RASSFI_KEYSTORE`.
     fn key_selection(&self) -> io::Result<()> {
         // Returns Result<T>
         let entries = fs::read_dir(&self.keystore)?
@@ -90,27 +113,28 @@ impl Rassfi {
             // The ? will panic if there is any Error.
             .collect::<Result<Vec<_>, io::Error>>()?;
 
-        let entires: Vec<&str> = entries.iter().map(|entry| {
-            let name = entry.file_name().unwrap().to_str().unwrap();
-            name
-        }).collect();
+        let entires: Vec<&str> = entries
+            .iter()
+            .map(|entry| {
+                let name = entry.file_name().unwrap().to_str().unwrap();
+                name
+            })
+            .collect();
 
-        let options = entires.join("\n");
-        let echo = Command::new("echo")
-            .args(["-e", &options])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-
-        let rofi = Command::new("rofi")
-            .arg("-dmenu")
-            .stdin(Stdio::from(echo.stdout.unwrap()))
-            .output()
-            .unwrap();
-
-        let input = String::from_utf8(rofi.stdout).unwrap();
+        let input = self.form_builder(&entires);
         println!("Key: {}", input);
 
         Ok(())
+    }
+}
+
+// Functions related to creating a new account
+impl Rassfi {
+    pub fn prompt_service_name(&self) {
+        // TODO: Find option to change the name of the placeholder text.
+        let rofi = Command::new("rofi").arg("-dmenu").output().unwrap();
+
+        let input = String::from_utf8(rofi.stdout).unwrap();
+        println!("New account name: {}", input);
     }
 }
