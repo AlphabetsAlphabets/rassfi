@@ -1,10 +1,10 @@
 mod rassfi;
 use rassfi::Rassfi;
-use srsa::errors::KeyError;
 
+use anyhow::Result;
 use std::{env, process::exit};
 
-fn main() -> Result<(), KeyError> {
+fn main() -> Result<()> {
     let valid_actions: Vec<&str> = vec!["encrypt", "login"];
     let args: Vec<String> = env::args().collect();
     let action = if let Some(action) = args.get(1) {
@@ -15,7 +15,10 @@ fn main() -> Result<(), KeyError> {
     };
 
     if !valid_actions.contains(&action) {
-        println!("Invalid argument '{}'. Expected 'encrypt' or 'login'.", action);
+        println!(
+            "Invalid argument '{}'. Expected 'encrypt' or 'login'.",
+            action
+        );
         exit(1);
     }
 

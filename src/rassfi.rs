@@ -1,10 +1,10 @@
 use std::{
-    env,
-    fmt::Display,
-    fs, io,
+    env, fs,
     path::{Path, PathBuf},
     process::{exit, Command, Stdio},
 };
+
+use anyhow::{Context, Result as AnyResult};
 
 /// # Parameters
 /// - `keystore`: The path to where the private and public keys are stored.
@@ -14,30 +14,20 @@ pub struct Rassfi {
     accounts: Vec<PathBuf>,
 }
 
-/// Returns takes a `Result` of any type then returns the `ok`.
-fn handle_error<T, U: Display>(result: Result<T, U>) -> T {
-    match result {
-        Ok(value) => value,
-        Err(e) => {
-            eprintln!("{}", e);
-            exit(1)
-        }
-    }
-}
-
 impl Rassfi {
     /// Creates an instance of `Rassfi`.
-    pub fn new() -> io::Result<Self> {
+    pub fn new() -> AnyResult<Self> {
         // A new variable for specifying the location of public and private keys.
-        let keystore = Self::load_keystore();
+        let keystore = Self::load_keystore()?;
         let accounts = Self::load_accounts()?;
 
         Ok(Self { keystore, accounts })
     }
 
     /// Loads in all encrypted files from the location specified in `RASSFI_VAULT`.
-    fn load_accounts() -> io::Result<Vec<PathBuf>> {
-        let vault = handle_error(env::var("RASSFI_VAULT"));
+    fn load_accounts() -> AnyResult<Vec<PathBuf>> {
+        let vault =
+            env::var("RASSFI_VAULT").context("RASSFI_VAULT environment variable not set.")?;
 
         let directory_contents = fs::read_dir(&vault)?;
         // entry.ok() will return None if entry is Err. filter_map will
@@ -52,15 +42,18 @@ impl Rassfi {
 
     /// The location where all your keys are stored public and private specified in
     /// `RASSFI_KEYSTORE`.
-    fn load_keystore() -> PathBuf {
-        let keystore = handle_error(env::var("RASSFI_KEYSTORE"));
-        Path::new(&keystore).to_owned()
+    fn load_keystore() -> AnyResult<PathBuf> {
+        let keystore =
+            env::var("RASSFI_KEYSTORE").context("RASSFI_KEYSTORE environment variable not set.")?;
+
+        Ok(Path::new(&keystore).to_owned())
     }
 }
 
 /// Utility functions for rofi
 impl Rassfi {
     /// Populates the rofi dropdown with values in `options`.
+    /// Then returns the user's selection as a `String`.
     fn form_builder(&self, options: &[&str]) -> String {
         let options = options.join("\n");
         let echo = Command::new("echo")
@@ -103,26 +96,26 @@ impl Rassfi {
     }
 
     /// Display all the keys in `RASSFI_KEYSTORE`.
-    fn key_selection(&self) -> io::Result<()> {
+    fn key_selection(&self) -> AnyResult<()> {
         // Returns Result<T>
-        let entries = fs::read_dir(&self.keystore)?
-            // `res` is a Result<DirEntry, Error>
-            .map(|res| res.map(|e| e.path()))
-            // res.map() will return a Vec<PathBuf>.
-            // Which is why Vec<_> is in Result<U, V>
-            // The ? will panic if there is any Error.
-            .collect::<Result<Vec<_>, io::Error>>()?;
+        let path = fs::read_dir(&self.keystore).with_context(|| {
+            let path = &self.keystore.to_str().unwrap();
+            format!("Directory '{}' not found.", path)
+        })?;
 
-        let entires: Vec<&str> = entries
-            .iter()
-            .map(|entry| {
-                let name = entry.file_name().unwrap().to_str().unwrap();
-                name
-            })
-            .collect();
+        let mut entries = vec![];
+        for item in path {
+            let name = item?.file_name();
+            let string = match name.into_string() {
+                Ok(string) => string,
+                Err(osstring) => format!("[INVALID] original value: {:?}", osstring),
+            };
 
-        let input = self.form_builder(&entires);
-        println!("Key: {}", input);
+            entries.push(string);
+        }
+
+        let entries: Vec<&str> = entries.iter().map(AsRef::as_ref).collect();
+        self.form_builder(entries.as_slice());
 
         Ok(())
     }
