@@ -136,6 +136,7 @@ impl Rassfi {
         // TODO: Which means I'll need to check up on srsa to find out if it can return `Keys` with
         // blank keys for this purpose.
         let key = format!("{}{}", path, key);
+        todo!("srsa needs to be able to return `Keys` with blank public keys for this to work.");
 
         Ok(())
     }
