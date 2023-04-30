@@ -7,27 +7,29 @@ use std::{env, process::exit};
 fn main() -> Result<()> {
     let valid_actions: Vec<&str> = vec!["encrypt", "login"];
     let args: Vec<String> = env::args().collect();
-    let action = if let Some(action) = args.get(1) {
-        action.as_str()
-    } else {
-        println!("One argument required. Valid arugments are 'encrypt' and 'login'.");
-        exit(1)
-    };
 
-    if !valid_actions.contains(&action) {
-        println!(
-            "Invalid argument '{}'. Expected 'encrypt' or 'login'.",
-            action
-        );
+    let rassfi = Rassfi::new()?;
+    // When no arguments are passed defaults to 'login'
+    if args.len() == 1 {
+        rassfi.display_accounts();
+        exit(0);
+    } else if args.len() > 2 {
+        println!("Unexpected number of arguments. Expected only one got {} instead.", args.len() - 1);
         exit(1);
     }
 
-    let rassfi = Rassfi::new()?;
+    // This is guaranteed to be safe
+    let action = args.get(1).unwrap().as_str();
+    if !valid_actions.contains(&action) {
+        println!("Expected either 'encrypt' or 'login' got {}", action);
+        exit(1);
+    }
+
     if action == "encrypt" {
-        rassfi.prompt_service_name();
+        rassfi.prompt_service_name()?;
     } else if action == "login" {
         rassfi.display_accounts();
-    }
+    } 
 
     Ok(())
 }

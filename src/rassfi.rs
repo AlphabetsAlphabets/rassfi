@@ -5,23 +5,34 @@ use std::{
 };
 
 use anyhow::{Context, Result as AnyResult};
+use rand::{rngs::OsRng, RngCore};
+use rsa::pkcs8::der::zeroize::Zeroizing;
 
 /// # Parameters
 /// - `keystore`: The path to where the private and public keys are stored.
-/// - `vault`: The directory where the encrypte files are stored.
+/// - `vault`: The place where all your encrypted files are stored.
+/// - `accounts`: The path of all encrypted files.
 pub struct Rassfi {
     keystore: PathBuf,
     accounts: Vec<PathBuf>,
+    vault: PathBuf,
 }
 
 impl Rassfi {
-    /// Creates an instance of `Rassfi`.
+    /// Creates an instance of `Rassfi`. Will faill if
+    /// `RASSFI_VAULT` or `RASSFI_KEYSTORE` is not set.
     pub fn new() -> AnyResult<Self> {
         // A new variable for specifying the location of public and private keys.
         let keystore = Self::load_keystore()?;
         let accounts = Self::load_accounts()?;
 
-        Ok(Self { keystore, accounts })
+        let vault = env::var("RASSFI_VAULT")?.into();
+
+        Ok(Self {
+            keystore,
+            accounts,
+            vault,
+        })
     }
 
     /// Loads in all encrypted files from the location specified in `RASSFI_VAULT`.
@@ -96,14 +107,14 @@ impl Rassfi {
     }
 
     /// Display all the keys in `RASSFI_KEYSTORE`.
+    // TODO: This should return a key.
     fn key_selection(&self) -> AnyResult<()> {
-        // Returns Result<T>
         let path = fs::read_dir(&self.keystore).with_context(|| {
             let path = &self.keystore.to_str().unwrap();
             format!("Directory '{}' not found.", path)
         })?;
 
-        let mut entries = vec![];
+        let mut keys = vec![];
         for item in path {
             let name = item?.file_name();
             let string = match name.into_string() {
@@ -111,11 +122,20 @@ impl Rassfi {
                 Err(osstring) => format!("[INVALID] original value: {:?}", osstring),
             };
 
-            entries.push(string);
+            keys.push(string);
         }
 
-        let entries: Vec<&str> = entries.iter().map(AsRef::as_ref).collect();
-        self.form_builder(entries.as_slice());
+        let keys: Vec<&str> = keys.iter().map(AsRef::as_ref).collect();
+        let key = self.form_builder(keys.as_slice());
+        let path = &self
+            .vault
+            .to_str()
+            .context("Unable to convert RASSFI_VAULT to &str.")?;
+
+        // This is the path. Open it up, take the pem turn it into a private key.
+        // TODO: Which means I'll need to check up on srsa to find out if it can return `Keys` with
+        // blank keys for this purpose.
+        let key = format!("{}{}", path, key);
 
         Ok(())
     }
@@ -123,11 +143,41 @@ impl Rassfi {
 
 // Functions related to creating a new account
 impl Rassfi {
-    pub fn prompt_service_name(&self) {
+    pub fn prompt_service_name(&self) -> AnyResult<()> {
         // TODO: Find option to change the name of the placeholder text.
         let rofi = Command::new("rofi").arg("-dmenu").output().unwrap();
-
         let input = String::from_utf8(rofi.stdout).unwrap();
-        println!("New account name: {}", input);
+
+        if input.is_empty() {
+            println!("Empty account name.");
+            exit(1);
+        }
+
+        let path = &self
+            .vault
+            .to_str()
+            .context("Unable to convert RASSFI_VAULT to &str.")?;
+
+        let path = format!("{}{}", path, input);
+        let pass = self.generate_password();
+
+        self.key_selection()?;
+
+        // fs::write(path, pass)?;
+
+        Ok(())
+    }
+
+    fn generate_password(&self) -> Zeroizing<String> {
+        let mut key = [0u8; 16];
+        OsRng.fill_bytes(&mut key);
+
+        let mut password = String::new();
+        while password.len() < 64 {
+            let random = OsRng.next_u32();
+            password = format!("{}{}", password, random);
+        }
+
+        Zeroizing::new(password)
     }
 }
