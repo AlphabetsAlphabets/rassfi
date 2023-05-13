@@ -117,6 +117,7 @@ impl<'key> Rassfi<'key> {
         })?;
 
         let mut keys = vec![];
+        // TODO: FIX: Will need to look into this.
         for item in path {
             let name = item?.file_name();
             let string = match name.into_string() {
