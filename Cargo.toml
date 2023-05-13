@@ -9,5 +9,5 @@ edition = "2021"
 anyhow = "1.0.70"
 rand = { version = "0.8.5" ,   features = ["getrandom"] }
 rsa = "0.8.2"
-srsa = "0.1.6"
+srsa = "0.1.7"
 zeroize = "1.6.0"

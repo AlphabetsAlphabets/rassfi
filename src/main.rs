@@ -8,13 +8,20 @@ fn main() -> Result<()> {
     let valid_actions: Vec<&str> = vec!["encrypt", "login"];
     let args: Vec<String> = env::args().collect();
 
-    let rassfi = Rassfi::new()?;
+    let mut rassfi = Rassfi::new()?;
     // When no arguments are passed defaults to 'login'
     if args.len() == 1 {
         rassfi.display_accounts();
+        let key = rassfi.key_selection()?;
+        println!("Key path: {}", key);
+        rassfi.authenticate(&key)?;
+
         exit(0);
     } else if args.len() > 2 {
-        println!("Unexpected number of arguments. Expected only one got {} instead.", args.len() - 1);
+        println!(
+            "Unexpected number of arguments. Expected only one got {} instead.",
+            args.len() - 1
+        );
         exit(1);
     }
 
@@ -29,7 +36,7 @@ fn main() -> Result<()> {
         rassfi.prompt_service_name()?;
     } else if action == "login" {
         rassfi.display_accounts();
-    } 
+    }
 
     Ok(())
 }

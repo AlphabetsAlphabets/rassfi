@@ -7,18 +7,20 @@ use std::{
 use anyhow::{Context, Result as AnyResult};
 use rand::{rngs::OsRng, RngCore};
 use rsa::pkcs8::der::zeroize::Zeroizing;
+use srsa::Keys;
 
 /// # Parameters
 /// - `keystore`: The path to where the private and public keys are stored.
 /// - `vault`: The place where all your encrypted files are stored.
 /// - `accounts`: The path of all encrypted files.
-pub struct Rassfi {
+pub struct Rassfi<'key> {
     keystore: PathBuf,
     accounts: Vec<PathBuf>,
     vault: PathBuf,
+    key: Option<Keys<'key>>,
 }
 
-impl Rassfi {
+impl Rassfi<'_> {
     /// Creates an instance of `Rassfi`. Will faill if
     /// `RASSFI_VAULT` or `RASSFI_KEYSTORE` is not set.
     pub fn new() -> AnyResult<Self> {
@@ -32,6 +34,7 @@ impl Rassfi {
             keystore,
             accounts,
             vault,
+            key: None,
         })
     }
 
@@ -62,7 +65,7 @@ impl Rassfi {
 }
 
 /// Utility functions for rofi
-impl Rassfi {
+impl Rassfi<'_> {
     /// Populates the rofi dropdown with values in `options`.
     /// Then returns the user's selection as a `String`.
     fn form_builder(&self, options: &[&str]) -> String {
@@ -92,9 +95,9 @@ impl Rassfi {
 }
 
 // Functions related to decrypting files.
-impl Rassfi {
+impl<'key> Rassfi<'key> {
     /// Display all the encrypted files specified in `RASSFI_VAULT`.
-    pub fn display_accounts(&self) {
+    pub fn display_accounts(&mut self) {
         let mut options = vec![];
         for account in &self.accounts {
             let account = account.file_name().unwrap();
@@ -103,15 +106,14 @@ impl Rassfi {
 
         let input = self.form_builder(&options);
         println!("Input: {}", input);
-        self.key_selection().unwrap();
     }
 
     /// Display all the keys in `RASSFI_KEYSTORE`.
     // TODO: This should return a key.
-    fn key_selection(&self) -> AnyResult<()> {
+    pub fn key_selection(&mut self) -> AnyResult<String> {
         let path = fs::read_dir(&self.keystore).with_context(|| {
             let path = &self.keystore.to_str().unwrap();
-            format!("Directory '{}' not found.", path)
+            format!("Directory '{}' not found at {}:{}", path, file!(), line!())
         })?;
 
         let mut keys = vec![];
@@ -125,26 +127,32 @@ impl Rassfi {
             keys.push(string);
         }
 
-        let keys: Vec<&str> = keys.iter().map(AsRef::as_ref).collect();
-        let key = self.form_builder(keys.as_slice());
-        let path = &self
-            .vault
+        let all_keys: Vec<&str> = keys.iter().map(AsRef::as_ref).collect();
+        let chosen_key = self.form_builder(all_keys.as_slice());
+        let vault = &self
+            .keystore
             .to_str()
-            .context("Unable to convert RASSFI_VAULT to &str.")?;
+            .context("Unable to convert RASSFI_KEYSTORE to &str.")?;
 
-        // This is the path. Open it up, take the pem turn it into a private key.
-        // TODO: Which means I'll need to check up on srsa to find out if it can return `Keys` with
-        // blank keys for this purpose.
-        let key = format!("{}{}", path, key);
-        todo!("srsa needs to be able to return `Keys` with blank public keys for this to work.");
+        let key_path = format!("{}/{}", vault, chosen_key);
+
+        Ok(key_path)
+    }
+
+    /// Will decrypt the encrypted private key with the provided password.
+    /// Produces an error on failure.
+    pub fn authenticate(&mut self, private_key: &'key str) -> AnyResult<()> {
+        let password = Zeroizing::new(self.form_builder(&vec!["Enter your password."]));
+        let key = Keys::retrieve_private_key(private_key, &password)?;
+        self.key = Some(key);
 
         Ok(())
     }
 }
 
 // Functions related to creating a new account
-impl Rassfi {
-    pub fn prompt_service_name(&self) -> AnyResult<()> {
+impl Rassfi<'_> {
+    pub fn prompt_service_name(&mut self) -> AnyResult<()> {
         // TODO: Find option to change the name of the placeholder text.
         let rofi = Command::new("rofi").arg("-dmenu").output().unwrap();
         let input = String::from_utf8(rofi.stdout).unwrap();
